@@ -1,0 +1,189 @@
+import streamlit as st
+import pandas as pd
+import datetime
+from streamlit_calendar import calendar
+from typing import Dict
+
+# Simulated storage
+if "events" not in st.session_state:
+    st.session_state.events = []
+
+if "user_profile" not in st.session_state:
+    st.session_state.user_profile = {
+        "name": "Athlete One",
+        "age": 25,
+        "sport": "Soccer",
+        "training_goal": "Injury Prevention & Performance",
+    }
+
+# Sidebar navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", ["🏠 Dashboard", "📅 Calendar", "🧠 AI Prevention", "⌚ Wearable Devices", "👤 Profile"])
+
+# ------------------------ AI Simulation Function ------------------------
+
+def get_ai_advice(data: Dict) -> Dict:
+    # Simulated AI logic — replace with real model or API call
+    if data["heart_rate"] > 160 or data["temperature"] > 38.5:
+        return {
+            "risk_score": 0.85,
+            "advice": [
+                "Reduce training intensity immediately.",
+                "Hydrate and monitor temperature.",
+                "Consider skipping today's session."
+            ]
+        }
+    elif data["sleep_hours"] < 6:
+        return {
+            "risk_score": 0.6,
+            "advice": [
+                "Increase sleep duration tonight.",
+                "Focus on recovery and mobility work.",
+                "Avoid high-intensity intervals today."
+            ]
+        }
+    else:
+        return {
+            "risk_score": 0.2,
+            "advice": [
+                "You're in good shape to train.",
+                "Maintain hydration and sleep habits.",
+                "Keep tracking your metrics daily."
+            ]
+        }
+
+# ------------------------ PAGES ------------------------
+
+# 🏠 Dashboard Page
+if page == "🏠 Dashboard":
+    st.title("📊 Health Dashboard")
+
+    health_data = {
+        "Heart Rate": 82,
+        "Temperature (°C)": 37.2,
+        "Steps Today": 8300,
+        "Sleep Hours": 7.5
+    }
+
+    col1, col2 = st.columns(2)
+    with col1:
+        for key in ["Heart Rate", "Temperature (°C)"]:
+            st.metric(label=key, value=health_data[key])
+    with col2:
+        for key in ["Steps Today", "Sleep Hours"]:
+            st.metric(label=key, value=health_data[key])
+
+    st.subheader("📈 Heart Rate Trend")
+    hr_df = pd.DataFrame({
+        "Date": pd.date_range(end=pd.Timestamp.today(), periods=7),
+        "Heart Rate": [78, 80, 82, 79, 81, 83, 82]
+    })
+    st.line_chart(hr_df.set_index("Date"))
+
+    st.subheader("😴 Sleep Quality Trend")
+    sleep_df = pd.DataFrame({
+        "Date": pd.date_range(end=pd.Timestamp.today(), periods=7),
+        "Sleep Hours": [6.5, 7.0, 7.5, 6.0, 8.0, 7.2, 7.5]
+    })
+    st.bar_chart(sleep_df.set_index("Date"))
+
+# 📅 Calendar Page
+elif page == "📅 Calendar":
+    st.title("📅 Training & Recovery Calendar")
+
+    st.subheader("Add Event")
+    event_title = st.text_input("Event Title")
+    event_date = st.date_input("Event Date", datetime.date.today())
+
+    if st.button("Add Event"):
+        st.session_state.events.append({
+            "title": event_title,
+            "start": str(event_date),
+            "end": str(event_date)
+        })
+        st.success(f"Event '{event_title}' added on {event_date}.")
+
+    st.subheader("Calendar View")
+    if not st.session_state.events:
+        st.session_state.events.append({
+            "title": "Sample Event",
+            "start": str(datetime.date.today()),
+            "end": str(datetime.date.today())
+        })
+
+    try:
+        calendar(events=st.session_state.events)
+    except Exception as e:
+        st.error(f"Calendar failed to load: {e}")
+
+# 🧠 AI Prevention Advice
+elif page == "🧠 AI Prevention":
+    st.title("🧠 AI-Powered Injury Prevention")
+
+    st.write("Adjust your current health metrics:")
+
+    heart_rate = st.slider("Heart Rate", 60, 200, 82)
+    temperature = st.slider("Body Temperature (°C)", 36.0, 40.0, 37.2)
+    sleep = st.slider("Sleep Hours Last Night", 0.0, 12.0, 7.0)
+
+    health_input = {
+        "heart_rate": heart_rate,
+        "temperature": temperature,
+        "sleep_hours": sleep,
+        "age": st.session_state.user_profile["age"],
+        "sport": st.session_state.user_profile["sport"],
+        "training_goal": st.session_state.user_profile["training_goal"]
+    }
+
+    ai_response = get_ai_advice(health_input)
+    risk_score = ai_response["risk_score"]
+    st.metric("Injury Risk Score", f"{risk_score*100:.1f} %")
+
+    st.subheader("🩺 Prevention Advice")
+    if risk_score > 0.7:
+        st.error("⚠️ High risk! Follow these steps:")
+    elif risk_score > 0.4:
+        st.warning("🟡 Moderate risk. Suggested actions:")
+    else:
+        st.success("🟢 Low risk. You're cleared for training!")
+
+    for tip in ai_response["advice"]:
+        st.write(f"- {tip}")
+
+# ⌚ Wearable Devices Page
+elif page == "⌚ Wearable Devices":
+    st.title("⌚ Connected Wearable Devices")
+
+    st.markdown("**Connected Devices:**")
+    connected_devices = ["Fitbit Charge 5", "Apple Watch Series 8"]
+    for device in connected_devices:
+        st.write(f"- {device}")
+
+    st.markdown("---")
+    st.subheader("Simulate Data Upload")
+    if st.button("Send Data to Backend (simulated)"):
+        st.success("✅ Data sent to backend!")
+
+# 👤 Profile Page
+elif page == "👤 Profile":
+    st.title("👤 User Profile")
+
+    profile = st.session_state.user_profile
+
+    name = st.text_input("Name", value=profile["name"])
+    age = st.number_input("Age", min_value=10, max_value=100, value=profile["age"])
+    sport = st.text_input("Sport", value=profile["sport"])
+    goal = st.text_input("Training Goal", value=profile["training_goal"])
+
+    if st.button("Update Profile"):
+        st.session_state.user_profile = {
+            "name": name,
+            "age": age,
+            "sport": sport,
+            "training_goal": goal,
+        }
+        st.success("✅ Profile updated!")
+
+    st.markdown("### Current Profile")
+    for k, v in st.session_state.user_profile.items():
+        st.write(f"**{k.title()}**: {v}")
