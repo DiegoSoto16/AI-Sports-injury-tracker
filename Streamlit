@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import requests
 from streamlit_calendar import calendar
 from typing import Dict
 
-# Simulated storage
+# ------------------------ Session State ------------------------
+
 if "events" not in st.session_state:
     st.session_state.events = []
 
@@ -16,78 +18,95 @@ if "user_profile" not in st.session_state:
         "training_goal": "Injury Prevention & Performance",
     }
 
-# Sidebar navigation
+# ------------------------ Sidebar Navigation ------------------------
+
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Dashboard", "📅 Calendar", "🧠 AI Prevention", "⌚ Wearable Devices", "👤 Profile"])
 
-# ------------------------ AI Simulation Function ------------------------
+# ------------------------ Local AI Prevention Logic ------------------------
 
-def get_ai_advice(data: Dict) -> Dict:
-    # Simulated AI logic — replace with real model or API call
-    if data["heart_rate"] > 160 or data["temperature"] > 38.5:
+def generate_ai_prevention_advice(data: Dict) -> Dict:
+    if data["heart_rate"] > 160 or data["fatigue_level"] > 8:
         return {
             "risk_score": 0.85,
             "advice": [
-                "Reduce training intensity immediately.",
-                "Hydrate and monitor temperature.",
-                "Consider skipping today's session."
+                "Your heart rate and fatigue levels suggest overtraining.",
+                "Take a recovery day and hydrate well.",
+                "Avoid intense sessions until metrics stabilize."
             ]
         }
-    elif data["sleep_hours"] < 6:
+    elif data["sleep_hours"] < 6 or data["fatigue_level"] > 6:
         return {
             "risk_score": 0.6,
             "advice": [
-                "Increase sleep duration tonight.",
-                "Focus on recovery and mobility work.",
-                "Avoid high-intensity intervals today."
+                "You're moderately fatigued—consider a lighter workout.",
+                "Prioritize sleep and hydration tonight.",
+                "Mobility or low-impact cardio is ideal today."
             ]
         }
     else:
         return {
             "risk_score": 0.2,
             "advice": [
-                "You're in good shape to train.",
-                "Maintain hydration and sleep habits.",
-                "Keep tracking your metrics daily."
+                "Metrics look good—you're ready to train.",
+                "Stick to your plan and monitor recovery.",
+                "Keep syncing your wearable for better insights."
             ]
         }
 
-# ------------------------ PAGES ------------------------
+# ------------------------ Pages ------------------------
 
-# 🏠 Dashboard Page
+#🏠Dashboard Page
 if page == "🏠 Dashboard":
     st.title("📊 Health Dashboard")
 
-    health_data = {
-        "Heart Rate": 82,
-        "Temperature (°C)": 37.2,
-        "Steps Today": 8300,
-        "Sleep Hours": 7.5
-    }
+    # Fetch wearable data from backend
+    try:
+        response = requests.get("http://localhost:8000/api/metrics/")
+        if response.status_code == 200:
+            st.session_state.wearable_data = response.json()
+        else:
+            st.warning("Using default data. Backend returned error.")
+            st.session_state.wearable_data = {
+                "heart_rate": 82,
+                "fatigue_level": 4,
+                "steps": 8300,
+                "sleep_hours": 7.5
+            }
+    except Exception as e:
+        st.error(f"Backend connection error: {e}")
+        st.session_state.wearable_data = {
+            "heart_rate": 82,
+            "fatigue_level": 4,
+            "steps": 8300,
+            "sleep_hours": 7.5
+        }
+
+    data = st.session_state.wearable_data
 
     col1, col2 = st.columns(2)
     with col1:
-        for key in ["Heart Rate", "Temperature (°C)"]:
-            st.metric(label=key, value=health_data[key])
+        st.metric("Heart Rate", data["heart_rate"])
+        st.metric("Fatigue Level", data["fatigue_level"])
     with col2:
-        for key in ["Steps Today", "Sleep Hours"]:
-            st.metric(label=key, value=health_data[key])
+        st.metric("Steps Today", data["steps"])
+        st.metric("Sleep Hours", data["sleep_hours"])
 
     st.subheader("📈 Heart Rate Trend")
     hr_df = pd.DataFrame({
         "Date": pd.date_range(end=pd.Timestamp.today(), periods=7),
-        "Heart Rate": [78, 80, 82, 79, 81, 83, 82]
+        "Heart Rate": [78, 80, 82, 79, 81, 83, data["heart_rate"]]
     })
     st.line_chart(hr_df.set_index("Date"))
 
     st.subheader("😴 Sleep Quality Trend")
     sleep_df = pd.DataFrame({
         "Date": pd.date_range(end=pd.Timestamp.today(), periods=7),
-        "Sleep Hours": [6.5, 7.0, 7.5, 6.0, 8.0, 7.2, 7.5]
+        "Sleep Hours": [6.5, 7.0, 7.5, 6.0, 8.0, 7.2, data["sleep_hours"]]
     })
     st.bar_chart(sleep_df.set_index("Date"))
 
-# 📅 Calendar Page
+#📅Calendar Page
 elif page == "📅 Calendar":
     st.title("📅 Training & Recovery Calendar")
 
@@ -116,41 +135,48 @@ elif page == "📅 Calendar":
     except Exception as e:
         st.error(f"Calendar failed to load: {e}")
 
-# 🧠 AI Prevention Advice
+#🧠AI Prevention Advice Page
 elif page == "🧠 AI Prevention":
     st.title("🧠 AI-Powered Injury Prevention")
 
-    st.write("Adjust your current health metrics:")
+    st.subheader("📡 Wearable Metrics")
+    wearable_data = st.session_state.get("wearable_data", {
+        "heart_rate": 82,
+        "fatigue_level": 4,
+        "sleep_hours": 7.5
+    })
 
-    heart_rate = st.slider("Heart Rate", 60, 200, 82)
-    temperature = st.slider("Body Temperature (°C)", 36.0, 40.0, 37.2)
-    sleep = st.slider("Sleep Hours Last Night", 0.0, 12.0, 7.0)
+    for k, v in wearable_data.items():
+        if k != "steps":
+            st.metric(label=k.replace("_", " ").title(), value=v)
 
-    health_input = {
-        "heart_rate": heart_rate,
-        "temperature": temperature,
-        "sleep_hours": sleep,
-        "age": st.session_state.user_profile["age"],
-        "sport": st.session_state.user_profile["sport"],
-        "training_goal": st.session_state.user_profile["training_goal"]
-    }
+    # Try fetching AI advice from backend
+    try:
+        response = requests.post("http://localhost:8000/api/advice/", json=wearable_data)
+        if response.status_code == 200:
+            ai_response = response.json()
+        else:
+            st.warning("Using local AI logic. Backend advice failed.")
+            ai_response = generate_ai_prevention_advice(wearable_data)
+    except Exception as e:
+        st.error(f"Advice fetch error: {e}")
+        ai_response = generate_ai_prevention_advice(wearable_data)
 
-    ai_response = get_ai_advice(health_input)
     risk_score = ai_response["risk_score"]
     st.metric("Injury Risk Score", f"{risk_score*100:.1f} %")
 
-    st.subheader("🩺 Prevention Advice")
+    st.subheader("🩺 Smart Training Advice")
     if risk_score > 0.7:
-        st.error("⚠️ High risk! Follow these steps:")
+        st.error("⚠️ High risk detected. Recovery recommended:")
     elif risk_score > 0.4:
-        st.warning("🟡 Moderate risk. Suggested actions:")
+        st.warning("🟡 Moderate risk. Adjust training accordingly:")
     else:
         st.success("🟢 Low risk. You're cleared for training!")
 
     for tip in ai_response["advice"]:
         st.write(f"- {tip}")
 
-# ⌚ Wearable Devices Page
+#⌚Wearable Devices Page
 elif page == "⌚ Wearable Devices":
     st.title("⌚ Connected Wearable Devices")
 
@@ -161,10 +187,18 @@ elif page == "⌚ Wearable Devices":
 
     st.markdown("---")
     st.subheader("Simulate Data Upload")
-    if st.button("Send Data to Backend (simulated)"):
-        st.success("✅ Data sent to backend!")
+    if st.button("Send Data to Backend"):
+        try:
+            payload = st.session_state.get("wearable_data", {})
+            response = requests.post("http://localhost:8000/api/metrics/", json=payload)
+            if response.status_code == 201:
+                st.success("✅ Data sent to backend!")
+            else:
+                st.error("❌ Failed to send data.")
+        except Exception as e:
+            st.error(f"Error sending data: {e}")
 
-# 👤 Profile Page
+#👤Profile Page
 elif page == "👤 Profile":
     st.title("👤 User Profile")
 
