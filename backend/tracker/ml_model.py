@@ -1,26 +1,28 @@
-import math
+import numpy as np
 
 
-def predict_injury_risk(heart_rate, duration_minutes, calories_burned, experience_years):
-    #  Calculate training load (how intense the session was)
-    training_load = (heart_rate * duration_minutes * 0.1) + \
-        (calories_burned * 0.05)
+def predict_injury_risk(heart_rate, duration_minutes, calories_burned, calculated_intensity, strain_score):
+    """
+    Predict an injury risk score between 0 and 1 using a simple neural-inspired heuristic model.
+    """
 
-    #  Use experience to reduce risk slightly
-    adjusted_load = training_load / (1 + (experience_years * 0.1))
+    # Normalize input data to prevent extreme scaling
+    hr_factor = min(heart_rate / 180, 1)
+    dur_factor = min(duration_minutes / 120, 1)
+    cal_factor = min(calories_burned / 1000, 1)
+    intensity_factor = min(calculated_intensity, 1)
+    strain_factor = min(strain_score, 1)
 
-    #  Calculate strain score
-    strain_score = round(adjusted_load / 100, 2)
+    # Combine factors with realistic weights
+    weighted_sum = (
+        0.35 * hr_factor +
+        0.25 * dur_factor +
+        0.20 * intensity_factor +
+        0.15 * strain_factor +
+        0.05 * cal_factor
+    )
 
-    #  Determine risk level realistically
-    if strain_score < 2.5:
-        risk = "low"
-    elif strain_score < 5.0:
-        risk = "medium"
-    else:
-        risk = "high"
+    # Nonlinear activation (like a sigmoid neuron)
+    risk_score = 1 / (1 + np.exp(-6 * (weighted_sum - 0.5)))
 
-    return {
-        "risk_level": risk,
-        "strain_score": strain_score
-    }
+    return round(float(risk_score), 2)

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 
-# simple welcome view (no separate file needed)
+# simple welcome view
 
 
 def home(request):
@@ -17,8 +17,8 @@ def home(request):
 
 
 urlpatterns = [
-    path('', home),  # 👈 new homepage route
+    path('', home),  # new homepage route
     path('admin/', admin.site.urls),
-    # connects your tracker app routes
+
     path('api/', include('backend.tracker.urls')),
 ]

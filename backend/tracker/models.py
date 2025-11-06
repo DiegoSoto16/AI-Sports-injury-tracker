@@ -1,7 +1,5 @@
 from django.db import models
 
-# Main athlete dataset
-
 
 class AthleteData(models.Model):
     name = models.CharField(max_length=100)
@@ -30,19 +28,15 @@ class InjuryPrediction(models.Model):
         return f"{self.athlete.name} - {self.risk_level}"
 
 
-# NEW: Saves full prediction history
 class PredictionHistory(models.Model):
-    athlete_name = models.CharField(max_length=100, blank=True, null=True)
-    sport = models.CharField(max_length=100, blank=True, null=True)
-    team = models.CharField(max_length=100, blank=True, null=True)
+    name = models.CharField(max_length=100, default="Unknown")
+    sport = models.CharField(max_length=100, default="Unknown")
+    team = models.CharField(max_length=100, null=True, blank=True, default="")
     heart_rate = models.FloatField()
     duration_minutes = models.FloatField()
     calories_burned = models.FloatField()
-    experience_years = models.FloatField()
+    experience_years = models.FloatField(default=0)
     calculated_intensity = models.FloatField()
-    risk_level = models.CharField(max_length=50)
+    risk_level = models.CharField(max_length=20)
     strain_score = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.athlete_name or 'Unknown Athlete'} - {self.risk_level} Risk ({self.created_at.strftime('%Y-%m-%d')})"

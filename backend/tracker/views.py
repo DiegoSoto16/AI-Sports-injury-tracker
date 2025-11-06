@@ -1,98 +1,73 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework import status
 from .models import AthleteData, InjuryPrediction, PredictionHistory
+from .serializers import AthleteDataSerializer, InjuryPredictionSerializer, PredictionHistorySerializer
 from .ml_model import predict_injury_risk
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 def get_all_athletes(request):
     athletes = AthleteData.objects.all()
-    data = [{
-        "id": a.id,
-        "name": a.name,
-        "age": a.age,
-        "sport": a.sport,
-        "team": a.team,
-        "experience_years": a.experience_years,
-        "heart_rate": a.heart_rate,
-        "duration_minutes": a.duration_minutes,
-        "calories_burned": a.calories_burned,
-        "calculated_intensity": a.calculated_intensity
-    } for a in athletes]
-    return Response(data)
+    serializer = AthleteDataSerializer(athletes, many=True)
+    return Response(serializer.data)
 
 
-@api_view(['POST'])
-def predict_injury(request):
+@api_view(["GET"])
+def get_all_predictions(request):
+    predictions = InjuryPrediction.objects.all().order_by("-created_at")
+    serializer = InjuryPredictionSerializer(predictions, many=True)
+    return Response(serializer.data)
+
+# Predict New Injury Risk
+
+
+@api_view(["POST"])
+def predict_view(request):
+    """
+    Accepts athlete data, calculates injury risk,
+    and saves both the InjuryPrediction and PredictionHistory.
+    """
     data = request.data
+    try:
+        heart_rate = float(data.get("heart_rate"))
+        duration = float(data.get("duration_minutes"))
+        calories = float(data.get("calories_burned"))
+        calculated_intensity = float(data.get("calculated_intensity", 0.5))
+        strain_score = float(data.get("strain_score", 0.5))
 
-    heart_rate = float(data.get("heart_rate"))
-    duration_minutes = float(data.get("duration_minutes"))
-    calories_burned = float(data.get("calories_burned"))
-    experience_years = float(data.get("experience_years", 0))
-    intensity = float(data.get("calculated_intensity", 1.0))
+        risk_score = predict_injury_risk(
+            heart_rate, duration, calories, calculated_intensity, strain_score)
 
-    # Run the AI risk model
-    result = predict_injury_risk(
-        heart_rate, duration_minutes, calories_burned, experience_years)
+        if risk_score > 0.7:
+            risk_level = "high"
+        elif risk_score > 0.4:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
 
-    # Save into InjuryPrediction
-    athlete = AthleteData.objects.create(
-        name=data.get("name", "Unknown"),
-        age=data.get("age", 0),
-        sport=data.get("sport", "Unknown"),
-        team=data.get("team", "Unknown"),
-        experience_years=experience_years,
-        heart_rate=heart_rate,
-        duration_minutes=duration_minutes,
-        calories_burned=calories_burned,
-        calculated_intensity=intensity
-    )
+        prediction = InjuryPrediction.objects.create(
+            athlete=AthleteData.objects.first(),  # or dynamically linked athlete
+            risk_level=risk_level,
+            predicted_probability=risk_score,
+            strain_score=strain_score,
+        )
 
-    InjuryPrediction.objects.create(
-        athlete=athlete,
-        risk_level=result["risk_level"],
-        predicted_probability=0.0,
-        strain_score=result["strain_score"]
-    )
+        PredictionHistory.objects.create(
+            name=data.get("name", "Unknown"),
+            sport=data.get("sport", "Unknown"),
+            team=data.get("team", "Unknown"),
+            heart_rate=heart_rate,
+            duration_minutes=duration,
+            calories_burned=calories,
+            experience_years=data.get("experience_years", 0),
+            calculated_intensity=calculated_intensity,
+            risk_level=risk_level,
+            strain_score=strain_score,
+        )
 
-    # Save in PredictionHistory too
-    PredictionHistory.objects.create(
-        athlete_name=data.get("name"),
-        sport=data.get("sport"),
-        team=data.get("team"),
-        heart_rate=heart_rate,
-        duration_minutes=duration_minutes,
-        calories_burned=calories_burned,
-        experience_years=experience_years,
-        calculated_intensity=intensity,
-        risk_level=result["risk_level"],
-        strain_score=result["strain_score"]
-    )
+        serializer = InjuryPredictionSerializer(prediction)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    return Response({
-        "risk_level": result["risk_level"],
-        "strain_score": result["strain_score"]
-    })
-
-
-@api_view(['GET'])
-def get_prediction_history(request):
-    history = PredictionHistory.objects.all().order_by('-created_at')
-    data = [
-        {
-            "athlete_name": h.athlete_name,
-            "sport": h.sport,
-            "team": h.team,
-            "heart_rate": h.heart_rate,
-            "duration_minutes": h.duration_minutes,
-            "calories_burned": h.calories_burned,
-            "experience_years": h.experience_years,
-            "calculated_intensity": h.calculated_intensity,
-            "risk_level": h.risk_level,
-            "strain_score": h.strain_score,
-            "created_at": h.created_at.strftime("%Y-%m-%d %H:%M")
-        }
-        for h in history
-    ]
-    return Response(data)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
