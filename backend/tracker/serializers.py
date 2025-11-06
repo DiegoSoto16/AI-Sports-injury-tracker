@@ -1,14 +1,19 @@
 from rest_framework import serializers
-from .models import Athlete, InjuryPrediction
+from .models import AthleteData, InjuryPrediction
 
 
-class AthleteSerializer(serializers.ModelSerializer):
+class AthleteDataSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Athlete
+        model = AthleteData
         fields = '__all__'
+        read_only_fields = ('heart_rate', 'calories_burned',
+                            'duration_minutes', 'calculated_intensity')
 
 
 class InjuryPredictionSerializer(serializers.ModelSerializer):
+    athlete = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = InjuryPrediction
-        fields = '__all__'
+        fields = ['id', 'risk_level', 'predicted_probability',
+                  'strain_score', 'athlete', 'created_at']

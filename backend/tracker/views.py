@@ -1,88 +1,98 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework import status
-from .models import Athlete, InjuryPrediction
-from .serializers import AthleteSerializer, InjuryPredictionSerializer
-import numpy as np
-import tensorflow as tf
-
-# Simple AI model placeholder (used earlier for predictions)
-model = tf.keras.Sequential([
-    tf.keras.layers.Input(shape=(5,)),
-    tf.keras.layers.Dense(8, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
-])
-model.compile(optimizer='adam', loss='binary_crossentropy')
-
-
-@api_view(['POST'])
-def predict_view(request):
-    """
-    Receives athlete data via POST, predicts injury risk using TensorFlow,
-    saves results to the database, and returns a JSON response.
-    """
-    try:
-        data = request.data
-        athlete_id = data.get('athlete_id')
-
-        # Ensure athlete exists
-        if not athlete_id:
-            return Response({"error": "athlete_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            athlete = Athlete.objects.get(id=athlete_id)
-        except Athlete.DoesNotExist:
-            return Response({"error": f"No athlete found with id {athlete_id}"}, status=status.HTTP_404_NOT_FOUND)
-
-        # Prepare features
-        features = np.array([
-            data.get('training_hours', 0),
-            data.get('intensity', 0),
-            data.get('sleep_hours', 0),
-            data.get('hydration_level', 0),
-            data.get('previous_injuries', 0)
-        ]).reshape(1, -1)
-
-        # Run TensorFlow model
-        prediction = float(model.predict(features, verbose=0)[0][0])
-        risk_score = round(prediction * 100, 2)
-
-        # Determine recommendation
-        if risk_score < 33:
-            recommendation = "Low risk. Continue regular training."
-        elif 33 <= risk_score < 66:
-            recommendation = "Moderate risk. Adjust training intensity."
-        else:
-            recommendation = "High risk! Consider rest and assessment."
-
-        # Save prediction linked to the athlete
-        InjuryPrediction.objects.create(
-            athlete=athlete,
-            risk_score=risk_score,
-            recommendation=recommendation
-        )
-
-        return Response({
-            "athlete": athlete.name,
-            "risk_score": risk_score,
-            "recommendation": recommendation
-        }, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['GET'])
-def get_all_predictions(request):
-    """Fetches all saved injury predictions from the database."""
-    predictions = InjuryPrediction.objects.all().order_by('-created_at')
-    serializer = InjuryPredictionSerializer(predictions, many=True)
-    return Response(serializer.data)
+from .models import AthleteData, InjuryPrediction, PredictionHistory
+from .ml_model import predict_injury_risk
 
 
 @api_view(['GET'])
 def get_all_athletes(request):
-    """Fetches all athlete data entries."""
-    athletes = Athlete.objects.all()
-    serializer = AthleteSerializer(athletes, many=True)
-    return Response(serializer.data)
+    athletes = AthleteData.objects.all()
+    data = [{
+        "id": a.id,
+        "name": a.name,
+        "age": a.age,
+        "sport": a.sport,
+        "team": a.team,
+        "experience_years": a.experience_years,
+        "heart_rate": a.heart_rate,
+        "duration_minutes": a.duration_minutes,
+        "calories_burned": a.calories_burned,
+        "calculated_intensity": a.calculated_intensity
+    } for a in athletes]
+    return Response(data)
+
+
+@api_view(['POST'])
+def predict_injury(request):
+    data = request.data
+
+    heart_rate = float(data.get("heart_rate"))
+    duration_minutes = float(data.get("duration_minutes"))
+    calories_burned = float(data.get("calories_burned"))
+    experience_years = float(data.get("experience_years", 0))
+    intensity = float(data.get("calculated_intensity", 1.0))
+
+    # Run the AI risk model
+    result = predict_injury_risk(
+        heart_rate, duration_minutes, calories_burned, experience_years)
+
+    # Save into InjuryPrediction
+    athlete = AthleteData.objects.create(
+        name=data.get("name", "Unknown"),
+        age=data.get("age", 0),
+        sport=data.get("sport", "Unknown"),
+        team=data.get("team", "Unknown"),
+        experience_years=experience_years,
+        heart_rate=heart_rate,
+        duration_minutes=duration_minutes,
+        calories_burned=calories_burned,
+        calculated_intensity=intensity
+    )
+
+    InjuryPrediction.objects.create(
+        athlete=athlete,
+        risk_level=result["risk_level"],
+        predicted_probability=0.0,
+        strain_score=result["strain_score"]
+    )
+
+    # Save in PredictionHistory too
+    PredictionHistory.objects.create(
+        athlete_name=data.get("name"),
+        sport=data.get("sport"),
+        team=data.get("team"),
+        heart_rate=heart_rate,
+        duration_minutes=duration_minutes,
+        calories_burned=calories_burned,
+        experience_years=experience_years,
+        calculated_intensity=intensity,
+        risk_level=result["risk_level"],
+        strain_score=result["strain_score"]
+    )
+
+    return Response({
+        "risk_level": result["risk_level"],
+        "strain_score": result["strain_score"]
+    })
+
+
+@api_view(['GET'])
+def get_prediction_history(request):
+    history = PredictionHistory.objects.all().order_by('-created_at')
+    data = [
+        {
+            "athlete_name": h.athlete_name,
+            "sport": h.sport,
+            "team": h.team,
+            "heart_rate": h.heart_rate,
+            "duration_minutes": h.duration_minutes,
+            "calories_burned": h.calories_burned,
+            "experience_years": h.experience_years,
+            "calculated_intensity": h.calculated_intensity,
+            "risk_level": h.risk_level,
+            "strain_score": h.strain_score,
+            "created_at": h.created_at.strftime("%Y-%m-%d %H:%M")
+        }
+        for h in history
+    ]
+    return Response(data)
