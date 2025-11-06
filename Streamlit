@@ -42,7 +42,7 @@ if "data_initialized" not in st.session_state:
 def fetch_backend_data() -> Dict:
     """Try fetching wearable data from backend; fallback to simulation."""
     try:
-        response = requests.get("http://localhost:8000/api/metrics/")
+        response = requests.get("http://localhost:8000/athletes/")
         if response.status_code == 200:
             return response.json()
         else:
@@ -147,7 +147,7 @@ elif page == "🧠 AI Prevention":
     wearable_data = st.session_state.wearable_data
 
     try:
-        response = requests.post("http://localhost:8000/api/advice/", json=wearable_data)
+        response = requests.post("http://localhost:8000/predict/", json=wearable_data)
         if response.status_code == 200:
             ai_response = response.json()
         else:
