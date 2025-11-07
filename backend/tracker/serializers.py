@@ -48,3 +48,11 @@ class PredictionHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = PredictionHistory
         fields = "__all__"
+
+
+class SimplePredictionInputSerializer(serializers.Serializer):
+    heart_rate = serializers.FloatField()
+    calories_burned = serializers.FloatField()
+    fatigue_level = serializers.FloatField(required=False)
+    sleep_hours = serializers.FloatField(required=False)
+    steps = serializers.IntegerField(required=False)

@@ -11,6 +11,9 @@ class AthleteData(models.Model):
     duration_minutes = models.FloatField()
     calories_burned = models.FloatField()
     calculated_intensity = models.FloatField()
+    sleep_hours = models.FloatField(default=0.0)
+    steps = models.IntegerField(default=0)
+    fatigue_level = models.IntegerField(default=0)
 
     def __str__(self):
         return self.name

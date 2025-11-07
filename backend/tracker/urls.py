@@ -2,7 +2,12 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('athletes/', views.get_all_athletes, name='get_all_athletes'),
-    path('predictions/', views.get_all_predictions, name='get_all_predictions'),
-    path('predict/', views.predict_view, name='predict_view'),
+    path('athletes/', views.AthleteListView.as_view(), name='athlete-list'),
+    path('athletes/<int:pk>/', views.AthleteDetailView.as_view(),
+         name='athlete-detail'),
+    path('predictions/', views.InjuryPredictionListView.as_view(),
+         name='prediction-list'),
+    path("predictions/latest/<int:athlete_id>/",
+         views.latest_prediction, name="latest-prediction"),
+    path('predict/', views.create_prediction, name='create-prediction'),
 ]

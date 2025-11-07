@@ -39,22 +39,56 @@ if "data_initialized" not in st.session_state:
 
 # ------------------------ Utility Functions ------------------------
 
+BASE_URL = "http://127.0.0.1:8000/api"
 
-def fetch_backend_data() -> Dict:
-    """Try fetching wearable data from backend; fallback to simulation."""
+SELECTED_ATHLETE_ID = 1  # Liam Johnson
+
+
+@st.cache_data(ttl=15)
+def get_all_athletes():
     try:
-        response = requests.get("http://localhost:8000/athletes/")
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.warning("⚠️ Backend returned an error, using simulated data.")
+        r = requests.get(f"{BASE_URL}/athletes/")
+        if r.status_code == 200:
+            return r.json()
     except Exception:
-        st.warning("⚠️ Backend not reachable, using simulated data.")
-    return st.session_state.wearable_data
+        pass
+    return []
 
 
-def compute_ai_metrics(data: Dict) -> Dict:
-    """Compute risk and strain metrics (formula-based)."""
+def fetch_backend_data(athlete_id=SELECTED_ATHLETE_ID):
+    """Fetch athlete data directly from the Django backend."""
+    try:
+        response = requests.get(
+            f"{BASE_URL}/athletes/{athlete_id}/", timeout=10)
+        if response.status_code == 200:
+            athlete = response.json()
+
+            # Print debug info to verify structure
+            # st.write("ahahah Backend athlete response:", athlete)
+
+            # adapt to your backend's actual field names
+            return {
+                "name": athlete.get("name") or athlete.get("athlete_name") or athlete.get("full_name") or f"Athlete {athlete_id}",
+                "heart_rate": athlete.get("heart_rate", 0),
+                "sleep_hours": athlete.get("sleep_hours", 0),
+                "steps": athlete.get("steps", 0),
+                "calories_burned": athlete.get("calories_burned", 0),
+                "fatigue_level": athlete.get("fatigue_level", 0),
+                "sport": athlete.get("sport", "N/A"),
+                "team": athlete.get("team", "N/A"),
+                "age": athlete.get("age", 0),
+                "experience_years": athlete.get("experience_years", 0),
+            }
+        else:
+            st.error(f"⚠️ Backend returned status {response.status_code}")
+            st.write(response.text)
+            return {}
+    except Exception as e:
+        st.error(f"❌ Could not connect to backend: {e}")
+        return {}
+
+
+def compute_local_metrics(data: Dict) -> Dict:
     hr = data.get("heart_rate", 80)
     fatigue = data.get("fatigue_level", 4)
     sleep = data.get("sleep_hours", 7)
@@ -69,11 +103,9 @@ def compute_ai_metrics(data: Dict) -> Dict:
     return {"risk_level": risk_score, "strain_level": strain_score}
 
 
-def generate_ai_advice(data: Dict) -> Dict:
-    """Unified AI logic: use compute_ai_metrics for risk, then add advice."""
-    metrics = compute_ai_metrics(data)
+def generate_local_ai_advice(data: Dict) -> Dict:
+    metrics = compute_local_metrics(data)
     risk_score = metrics["risk_level"]
-
     hr, fatigue, sleep = data["heart_rate"], data["fatigue_level"], data["sleep_hours"]
 
     if risk_score > 0.7 or hr > 160 or fatigue > 8:
@@ -94,8 +126,8 @@ def generate_ai_advice(data: Dict) -> Dict:
             "Stick to your plan and monitor recovery.",
             "Keep syncing your wearable for better insights.",
         ]
-
     return {"risk_score": risk_score, "advice": advice}
+
 
 # ------------------------ Sidebar Navigation ------------------------
 
@@ -107,6 +139,12 @@ page = st.sidebar.radio(
         "⌚ Wearable Devices", "👤 Profile"],
 )
 
+# Sidebar athlete selector
+# athletes = requests.get(f"{BASE_URL}/athletes/").json()
+# athlete_options = [f"{a['id']} — {a['name']}" for a in athletes]
+# selected_option = st.sidebar.selectbox("Athlete", athlete_options)
+# selected_athlete = int(selected_option.split("—")[0].strip())
+
 # ------------------------ Dashboard ------------------------
 
 if page == "🏠 Dashboard":
@@ -114,19 +152,40 @@ if page == "🏠 Dashboard":
 
     # Try backend first
     wearable_data = fetch_backend_data()
-    st.session_state.wearable_data = wearable_data
-    metrics = compute_ai_metrics(wearable_data)
+    if not wearable_data:
+        st.warning("No athlete data found.")
+        st.stop()
 
-    # Main stats
+    # Display core athlete info
+    st.markdown(f"### 🏅 {wearable_data['name']} ({wearable_data['sport']})")
+
+    # Primary performance metrics
     col1, col2, col3 = st.columns(3)
-    col1.metric("❤️ Heart Rate", f"{wearable_data['heart_rate']} bpm")
-    col2.metric("💤 Sleep Hours", wearable_data["sleep_hours"])
-    col3.metric("🔥 Calories Burned", wearable_data["calories_burned"])
+    col1.metric("❤️ Heart Rate", f"{wearable_data['heart_rate']:.1f} bpm")
+    col2.metric("💤 Sleep Hours", f"{wearable_data['sleep_hours']:.1f}")
+    col3.metric("🔥 Calories Burned", f"{wearable_data['calories_burned']:.2f}")
 
     col4, col5, col6 = st.columns(3)
-    col4.metric("🏃 Steps", wearable_data["steps"])
-    col5.metric("⚠️ Risk Level", f"{metrics['risk_level']*100:.1f}%")
-    col6.metric("💪 Strain Level", f"{metrics['strain_level']*100:.1f}%")
+    col4.metric("🏃 Steps", int(wearable_data["steps"]))
+
+    # Fetch latest prediction for this athlete
+    try:
+        r = requests.get(
+            f"{BASE_URL}/predictions/latest/{SELECTED_ATHLETE_ID}/", timeout=10)
+        if r.status_code == 200:
+            pred = r.json()
+            risk_pct = float(pred["predicted_probability"]) * 100.0
+            strain_pct = float(pred["strain_score"]) * 100.0
+            col5.metric("⚠️ Risk Level", f"{risk_pct:.1f}%")
+            col6.metric("💪 Strain Level", f"{strain_pct:.1f}%")
+        else:
+            col5.metric("⚠️ Risk Level", "—")
+            col6.metric("💪 Strain Level", "—")
+            st.info("No prediction yet. Open ‘AI Prevention’ and run a prediction.")
+    except Exception as e:
+        col5.metric("⚠️ Risk Level", "—")
+        col6.metric("💪 Strain Level", "—")
+        st.warning(f"Could not load latest prediction: {e}")
 
     st.divider()
     st.subheader("📈 Performance Trends")
@@ -151,33 +210,83 @@ if page == "🏠 Dashboard":
 elif page == "🧠 AI Prevention":
     st.title("🧠 AI Injury Prevention Advisor")
 
-    wearable_data = st.session_state.wearable_data
+    # pull current athlete metrics from backend
+    data = fetch_backend_data()
+
+    # compute strain/intensity locally to send to backend
+    hr = float(data["heart_rate"])
+    steps = int(data["steps"])
+    strain = round(((steps / 10000.0) + (hr / 200.0)) / 2.0, 2)
+    intensity = round((hr / 200.0) + (steps / 12000.0), 2)
+
+    payload = {
+        "athlete": SELECTED_ATHLETE_ID,
+        "heart_rate": hr,
+        "duration_minutes": 60.0,
+        "calories_burned": float(data["calories_burned"]),
+        "calculated_intensity": intensity,
+        "strain_score": strain,
+        "sleep_hours": float(data["sleep_hours"]),
+        "steps": steps,
+        "fatigue_level": int(data.get("fatigue_level", 0)),
+    }
 
     try:
-        response = requests.post(
-            "http://localhost:8000/predict/", json=wearable_data)
-        if response.status_code == 200:
-            ai_response = response.json()
+        resp = requests.post(f"{BASE_URL}/predict/", json=payload, timeout=15)
+        if resp.status_code in (200, 201):
+            res = resp.json()
+            risk_score = float(res.get("score", 0.0))
+            risk_level = res.get("risk_level", "low")
+            st.metric("Injury Risk Score", f"{risk_score*100:.1f}%")
+
+            if risk_level == "high" or risk_score > 0.7:
+                st.error("🚨 High Risk — rest and recovery recommended.")
+            elif risk_level == "medium" or risk_score > 0.4:
+                st.warning("⚠️ Moderate Risk — reduce intensity.")
+            else:
+                st.success("✅ Low Risk — safe to train.")
+
+            st.subheader("Personalized Training Advice")
+            tips = {
+                "high": [
+                    "Take a recovery day and hydrate well.",
+                    "Avoid intense sessions until metrics stabilize.",
+                ],
+                "medium": [
+                    "Consider a lighter workout today.",
+                    "Prioritize sleep and hydration tonight.",
+                ],
+                "low": [
+                    "Metrics look good—you're ready to train.",
+                    "Stick to your plan and monitor recovery.",
+                ],
+            }
+            for tip in tips[risk_level]:
+                st.write(f"- {tip}")
         else:
-            st.warning("⚠️ Backend AI unavailable — using local AI simulation.")
-            ai_response = generate_ai_advice(wearable_data)
-    except Exception:
-        st.warning("⚠️ Could not connect to AI backend — using simulation.")
-        ai_response = generate_ai_advice(wearable_data)
+            st.error(f"Backend AI error: HTTP {resp.status_code}")
+            st.write(resp.text)
+    except Exception as e:
+        st.error(f"Could not contact backend: {e}")
 
-    risk_score = ai_response["risk_score"]
-    st.metric("Injury Risk Score", f"{risk_score*100:.1f}%")
+   # if st.button("Send Data to Backend"):
 
-    if risk_score > 0.7:
-        st.error("🚨 High Risk — rest and recovery recommended.")
-    elif risk_score > 0.4:
-        st.warning("⚠️ Moderate Risk — reduce intensity.")
-    else:
-        st.success("✅ Low Risk — safe to train.")
+   # pass
 
-    st.subheader("Personalized Training Advice")
-    for tip in ai_response["advice"]:
-        st.write(f"- {tip}")
+# ------------------------------------------------------------
+elif page == "📜 Prediction History":
+    st.title("📜 Prediction History")
+    try:
+        resp = requests.get("http://127.0.0.1:8000/api/predictions/")
+        if resp.status_code == 200:
+            history = resp.json()
+            df = pd.DataFrame(history)
+            st.dataframe(
+                df[["athlete_name", "risk_level", "strain_score", "created_at"]])
+        else:
+            st.warning("No prediction data found.")
+    except Exception as e:
+        st.error(f"Error fetching history: {e}")
 
 # ------------------------ Calendar ------------------------
 
@@ -206,39 +315,57 @@ elif page == "⌚ Wearable Devices":
     for d in devices:
         st.write(f"- {d}")
 
-    if st.button("Send Data to Backend"):
-        try:
-            response = requests.post(
-                "http://localhost:8000/api/metrics/",
-                json=st.session_state.wearable_data
-            )
-            if response.status_code == 201:
-                st.success("✅ Data sent successfully!")
-            else:
-                st.error("❌ Failed to send data.")
-        except Exception as e:
-            st.error(f"Error sending data: {e}")
+# ---------------------------------------------
+
+if st.button("Send Data to Backend"):
+    try:
+        payload = {
+            "athlete": SELECTED_ATHLETE_ID,
+            "heart_rate": st.session_state.wearable_data["heart_rate"],
+            "duration_minutes": random.uniform(30, 90),
+            "calories_burned": st.session_state.wearable_data["calories_burned"],
+            "calculated_intensity": 0.5,
+            "strain_score": 0.5,
+            "sleep_hours": st.session_state.wearable_data.get("sleep_hours", random.uniform(6, 9)),
+            "steps": st.session_state.wearable_data.get("steps", random.randint(1000, 12000)),
+            "fatigue_level": st.session_state.wearable_data.get("fatigue_level", random.randint(3, 8)),
+        }
+
+        response = requests.post(f"{BASE_URL}/predict/", json=payload)
+        if response.status_code in [200, 201]:
+            st.success("✅ Data sent successfully!")
+            st.session_state.wearable_data = fetch_backend_data(
+                SELECTED_ATHLETE_ID)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to send data. Status: {response.status_code}")
+            st.write(response.text)
+    except Exception as e:
+        st.error(f"⚠️ Error sending data: {e}")
+
 
 # ------------------------ Profile ------------------------
 
 elif page == "👤 Profile":
     st.title("👤 User Profile")
 
-    profile = st.session_state.user_profile
-    name = st.text_input("Name", profile["name"])
-    age = st.number_input("Age", 10, 100, profile["age"])
-    sport = st.text_input("Sport", profile["sport"])
-    goal = st.text_input("Training Goal", profile["training_goal"])
-
-    if st.button("Update Profile"):
-        st.session_state.user_profile = {
-            "name": name,
-            "age": age,
-            "sport": sport,
-            "training_goal": goal,
-        }
-        st.success("✅ Profile updated!")
-
-    st.markdown("### Current Profile")
-    for k, v in st.session_state.user_profile.items():
-        st.write(f"**{k.title()}**: {v}")
+    try:
+        # Get ONE athlete (e.g. first athlete in your database)
+        # <— fixed ID (Liam Johnson)
+        response = requests.get(f"{BASE_URL}/athletes/1/")
+        if response.status_code == 200:
+            athlete = response.json()
+            st.markdown(f"### 🏅 {athlete['name']}")
+            st.write(f"**Sport:** {athlete['sport']}")
+            st.write(f"**Team:** {athlete['team']}")
+            st.write(f"**Age:** {athlete['age']}")
+            st.write(
+                f"**Experience (years):** {athlete['experience_years']:.1f}")
+            st.write(f"**Heart Rate:** {athlete['heart_rate']} bpm")
+            st.write(f"**Sleep Hours:** {athlete['sleep_hours']}")
+            st.write(f"**Steps:** {athlete['steps']}")
+            st.write(f"**Fatigue Level:** {athlete['fatigue_level']}")
+        else:
+            st.warning("⚠️ Could not load athlete from backend.")
+    except Exception as e:
+        st.error(f"Error loading athlete profile: {e}")
