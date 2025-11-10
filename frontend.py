@@ -37,7 +37,7 @@ if "data_initialized" not in st.session_state:
 
     st.session_state.data_initialized = True
 
-# ------------------------ Utility Functions ------------------------
+# Utility Functions
 
 BASE_URL = "http://127.0.0.1:8000/api"
 
@@ -129,7 +129,7 @@ def generate_local_ai_advice(data: Dict) -> Dict:
     return {"risk_score": risk_score, "advice": advice}
 
 
-# ------------------------ Sidebar Navigation ------------------------
+# Sidebar Navigation
 
 
 st.sidebar.title("Navigation")
@@ -145,7 +145,7 @@ page = st.sidebar.radio(
 # selected_option = st.sidebar.selectbox("Athlete", athlete_options)
 # selected_athlete = int(selected_option.split("—")[0].strip())
 
-# ------------------------ Dashboard ------------------------
+# Dashboard
 
 if page == "🏠 Dashboard":
     st.title("📊 Athlete Health Dashboard")
@@ -205,7 +205,7 @@ if page == "🏠 Dashboard":
         st.plotly_chart(px.line(hist, x="Date", y="Calories Burned",
                         title="Calories Burned Trend"), use_container_width=True)
 
-# ------------------------ AI Prevention Page ------------------------
+# AI Prevention Page
 
 elif page == "🧠 AI Prevention":
     st.title("🧠 AI Injury Prevention Advisor")
@@ -288,7 +288,7 @@ elif page == "📜 Prediction History":
     except Exception as e:
         st.error(f"Error fetching history: {e}")
 
-# ------------------------ Calendar ------------------------
+# Calendar
 
 elif page == "📅 Calendar":
     st.title("📅 Training & Recovery Calendar")
@@ -305,7 +305,7 @@ elif page == "📅 Calendar":
     st.subheader("Your Calendar")
     calendar(events=st.session_state.events)
 
-# ------------------------ Wearable Devices ------------------------
+# Wearable Devices
 
 elif page == "⌚ Wearable Devices":
     st.title("⌚ Connected Wearables")
@@ -344,14 +344,13 @@ if st.button("Send Data to Backend"):
         st.error(f"⚠️ Error sending data: {e}")
 
 
-# ------------------------ Profile ------------------------
-
+# Profile
 elif page == "👤 Profile":
     st.title("👤 User Profile")
 
     try:
-        # Get ONE athlete (e.g. first athlete in your database)
-        # <— fixed ID (Liam Johnson)
+        # Get ONE athlete
+        # (Liam Johnson)
         response = requests.get(f"{BASE_URL}/athletes/1/")
         if response.status_code == 200:
             athlete = response.json()
