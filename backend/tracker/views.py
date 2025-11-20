@@ -2,9 +2,16 @@ from rest_framework import generics
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from rest_framework import status
 
-from .models import AthleteData, InjuryPrediction
-from .serializers import AthleteDataSerializer, InjuryPredictionSerializer
+
+from .models import AthleteData, InjuryPrediction,  AthleteSession
+from .serializers import (
+    AthleteDataSerializer,
+    AthleteSessionSerializer,
+    InjuryPredictionSerializer,
+    PredictionHistorySerializer
+)
 
 
 class AthleteListView(generics.ListAPIView):
@@ -82,3 +89,22 @@ def latest_prediction(request, athlete_id: int):
         "strain_score": pred.strain_score,
         "created_at": pred.created_at,
     })
+
+
+@api_view(["GET"])
+def athlete_sessions(request, athlete_id: int):
+    athlete = get_object_or_404(AthleteData, id=athlete_id)
+    sessions = athlete.sessions.order_by("-session_date")
+    serializer = AthleteSessionSerializer(sessions, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
+def latest_session(request, athlete_id: int):
+    athlete = get_object_or_404(AthleteData, id=athlete_id)
+    session = athlete.sessions.order_by("-session_date").first()
+    if not session:
+        return Response({"detail": "No sessions yet"}, status=404)
+
+    serializer = AthleteSessionSerializer(session)
+    return Response(serializer.data)

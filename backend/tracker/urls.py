@@ -10,4 +10,8 @@ urlpatterns = [
     path("predictions/latest/<int:athlete_id>/",
          views.latest_prediction, name="latest-prediction"),
     path('predict/', views.create_prediction, name='create-prediction'),
+    path("athletes/<int:athlete_id>/sessions/",
+         views.athlete_sessions, name="athlete-sessions"),
+    path("athletes/<int:athlete_id>/latest_session/",
+         views.latest_session, name="athlete-latest-session"),
 ]

@@ -1,115 +1,69 @@
-from django.db import connection
-from tracker.models import AthleteData, InjuryPrediction
+from django.core.management.base import BaseCommand
+from tracker.models import AthleteData, AthleteSession
 import random
 
 
-def reset_sequences():
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM sqlite_sequence WHERE name='tracker_athletedata';")
-        cursor.execute(
-            "DELETE FROM sqlite_sequence WHERE name='tracker_injuryprediction';")
+class Command(BaseCommand):
+    help = "Generate fake data for testing"
 
+    def handle(self, *args, **kwargs):
+        AthleteSession.objects.all().delete()
+        AthleteData.objects.all().delete()
 
-print(" Deleting old data...")
-InjuryPrediction.objects.all().delete()
-AthleteData.objects.all().delete()
-reset_sequences()
+        print("Old data cleared.")
 
+        names = [
+            "Liam Johnson", "Noah Carter", "Ethan Brooks", "Mason Cooper",
+            "Logan Rivera", "Ava Mitchell", "Sophia Turner", "Isabella Davis",
+            "Mia Thompson", "Charlotte Lewis"
+        ]
 
-athletes = [
-    {"name": "Liam Johnson", "age": 22, "sport": "Soccer",
-        "team": "C", "experience_years": 3.5},
-    {"name": "Emma Smith", "age": 24, "sport": "Soccer",
-        "team": "A", "experience_years": 4.0},
-    {"name": "Noah Brown", "age": 23, "sport": "Soccer",
-        "team": "B", "experience_years": 2.8},
-    {"name": "Ava Martinez", "age": 25, "sport": "Basketball",
-        "team": "C", "experience_years": 5.1},
-    {"name": "Olivia Lopez", "age": 21, "sport": "Track",
-        "team": "B", "experience_years": 2.0},
-    {"name": "Ethan Taylor", "age": 26, "sport": "Soccer",
-        "team": "C", "experience_years": 6.2},
-    {"name": "Sophia Anderson", "age": 22, "sport": "Basketball",
-        "team": "A", "experience_years": 3.2},
-    {"name": "James Davis", "age": 24, "sport": "Soccer",
-        "team": "B", "experience_years": 4.3},
-    {"name": "Isabella Wright", "age": 23, "sport": "Track",
-        "team": "C", "experience_years": 3.9},
-    {"name": "Mason Green", "age": 27, "sport": "Soccer",
-        "team": "A", "experience_years": 7.1},
-]
+        sports = ["Soccer", "Basketball", "Football", "Tennis", "Track"]
 
+        athletes = []
 
-print(" Generating sample athletes and injury predictions...")
+        for name in names:
+            athlete = AthleteData.objects.create(
+                name=name,
+                age=random.randint(18, 25),
+                sport=random.choice(sports),
+                team="Team A",
+                experience_years=round(random.uniform(1, 6), 1),
+                heart_rate=0,
+                duration_minutes=0,
+                calories_burned=0,
+                calculated_intensity=0,
+                sleep_hours=0,
+                steps=0,
+                fatigue_level=0
+            )
+            athletes.append(athlete)
 
-for athlete in athletes:
-    try:
-        print(f"Seeding athlete: {athlete['name']} ...")
+        print("10 athletes created.")
 
-        # realistic random performance data
-        heart_rate = random.uniform(65, 105)
-        duration = random.uniform(40, 90)
-        calories = round(duration * (heart_rate / 10), 2)
-        sleep_hours = round(random.uniform(5.0, 9.0), 1)
-        steps = random.randint(4000, 15000)
+        athletes = AthleteData.objects.all()
 
-        # Derived metrics
-        intensity = round((heart_rate / 200) + (duration / 120), 2)
-        strain = round(((steps / 10000) + (heart_rate / 200)) / 2, 2)
+        for athlete in athletes:
+            for _ in range(25):
 
-        # athlete record
-        a = AthleteData.objects.create(
-            name=athlete["name"],
-            age=athlete["age"],
-            sport=athlete["sport"],
-            team=athlete["team"],
-            experience_years=athlete["experience_years"],
-            heart_rate=heart_rate,
-            duration_minutes=duration,
-            calories_burned=calories,
-            calculated_intensity=intensity,
-            sleep_hours=sleep_hours,
-            steps=steps,
-        )
+                heart_rate = random.uniform(70, 160)
+                sleep_hours = random.uniform(4, 9)
+                steps = random.randint(2000, 15000)
+                calories = random.uniform(300, 1200)
 
-        # Normalize factors
-        heart_factor = heart_rate / 200
-        strain_factor = strain
-        sleep_factor = max(0, 1 - (sleep_hours / 8))
-        steps_factor = max(0, 1 - (steps / 12000))
-        intensity_factor = intensity / 10
+                intensity = round(calories / 700, 2)
+                strain = round(intensity * 10 + random.uniform(-1, 1), 2)
 
-        # Weighted risk model emphasizing fatigue/stress
-        risk_score = round((
-            (heart_factor * 0.30) +
-            (strain_factor * 0.30) +
-            (sleep_factor * 0.20) +
-            (steps_factor * 0.10) +
-            (intensity_factor * 0.10)
-        ), 2)
+                AthleteSession.objects.create(
+                    athlete=athlete,
+                    heart_rate=heart_rate,
+                    sleep_hours=sleep_hours,
+                    steps=steps,
+                    calories_burned=calories,
+                    calculated_intensity=intensity,
+                    fatigue_level=athlete.fatigue_level,  # Static fatigue
+                    strain_score=strain,
+                    injury_occurred=random.choice([False, False, False, True]),
+                )
 
-        risk_score = round(min(risk_score * 1.4, 1.0), 2)
-
-        # Risk categories
-        if risk_score > 0.7:
-            risk_level = "high"
-        elif risk_score > 0.45:
-            risk_level = "medium"
-        else:
-            risk_level = "low"
-
-        InjuryPrediction.objects.create(
-            athlete=a,
-            risk_level=risk_level,
-            predicted_probability=risk_score,
-            strain_score=strain,
-        )
-
-        print(
-            f" Created {a.name} ({a.sport}) → Risk: {risk_level} ({risk_score})")
-
-    except Exception as e:
-        print(f" Error for {athlete['name']}: {e}")
-
-print("\n Done! 10 athletes and predictions seeded successfully.")
+        print("All sessions created successfully!")

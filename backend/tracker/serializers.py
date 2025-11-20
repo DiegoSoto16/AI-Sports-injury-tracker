@@ -1,11 +1,45 @@
 from rest_framework import serializers
-from .models import AthleteData, InjuryPrediction, PredictionHistory
+from .models import AthleteData, InjuryPrediction, PredictionHistory, AthleteSession
+
+
+class AthleteSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AthleteSession
+        fields = "__all__"
 
 
 class AthleteDataSerializer(serializers.ModelSerializer):
+
+    #  Disable reverse FK field
+    sessions = None
+
+    # Averages we computed in the view
+    avg_heart_rate = serializers.FloatField(read_only=True)
+    avg_sleep_hours = serializers.FloatField(read_only=True)
+    avg_steps = serializers.FloatField(read_only=True)
+    avg_calories_burned = serializers.FloatField(read_only=True)
+    avg_intensity = serializers.FloatField(read_only=True)
+    avg_strain = serializers.FloatField(read_only=True)
+
     class Meta:
         model = AthleteData
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "age",
+            "sport",
+            "team",
+            "experience_years",
+
+            # Average session metrics
+            "avg_heart_rate",
+            "avg_sleep_hours",
+            "avg_steps",
+            "avg_calories_burned",
+            "avg_intensity",
+            "avg_strain",
+        ]
+
 
 # Injury Prediction Serializer
 
