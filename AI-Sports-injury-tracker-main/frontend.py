@@ -51,13 +51,14 @@ ATHLETE_ID = st.session_state.athlete_id
 
 MODEL_PATH = Path("backend/ml_models/injury_model.h5")
 
-# Fill these values after injury_data.csv is created and analyzed
+data = pd.read_csv('injury_data.csv')
+
 MAX_VALUES = {
-    "heart_rate": 1,               # TEMP placeholder
-    "duration_minutes": 1,
-    "calories_burned": 1,
-    "calculated_intensity": 1,
-    "strain_score": 1
+    "heart_rate": data["heart_rate"].max(),
+    "duration_minutes": data["duration_minutes"].max(),
+    "calories_burned": data["calories_burned"].max(),
+    "calculated_intensity": data["calculated_intensity"].max(),
+    "strain_score": data["strain_score"].max()
 }
 
 @st.cache_resource
