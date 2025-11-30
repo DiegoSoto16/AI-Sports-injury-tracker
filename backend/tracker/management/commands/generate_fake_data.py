@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from tracker.models import AthleteData, AthleteSession
+from backend.tracker.models import AthleteData, AthleteSession
 import random
 
 

@@ -1,4 +1,5 @@
 from django.db import models
+import datetime
 
 
 class AthleteData(models.Model):
@@ -72,7 +73,7 @@ class AthleteSession(models.Model):
         AthleteData, on_delete=models.CASCADE, related_name="sessions"
     )
 
-    session_date = models.DateTimeField(auto_now_add=True)
+    session_date = models.DateTimeField(default=datetime.datetime.now)
 
     heart_rate = models.FloatField()
     sleep_hours = models.FloatField()

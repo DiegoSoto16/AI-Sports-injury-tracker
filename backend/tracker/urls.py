@@ -1,5 +1,7 @@
 from django.urls import path
 from . import views
+from .views import latest_session
+from .views import athlete_history
 
 urlpatterns = [
     path('athletes/', views.AthleteListView.as_view(), name='athlete-list'),
@@ -14,4 +16,8 @@ urlpatterns = [
          views.athlete_sessions, name="athlete-sessions"),
     path("athletes/<int:athlete_id>/latest_session/",
          views.latest_session, name="athlete-latest-session"),
+    path('athletes/<int:athlete_id>/latest_session/', latest_session),
+    path("athletes/<int:pk>/history/", athlete_history),
+
+
 ]
