@@ -132,87 +132,124 @@ def strain_risk_component(strain_score: float) -> float:
 
 @api_view(["POST"])
 def create_prediction(request):
+    """
+    Creates an AI injury prediction that fuses:
+    - ML probability from TensorFlow model
+    - Workload safety layer using ACWR
+    - Prescriptive recommendations to prevent injury
+    """
     from .ml_predictor import predict_injury
 
+    # -------- 1) GET ATHLETE --------
     athlete_id = request.data.get("athlete")
     athlete = get_object_or_404(AthleteData, id=athlete_id)
 
-    # ---- Metrics from frontend (latest session) ---- #
+    # -------- 2) EXTRACT INPUT FEATURES --------
     heart_rate = float(request.data.get("heart_rate", 0))
     sleep_hours = float(request.data.get("sleep_hours", 0))
     steps = int(request.data.get("steps", 0))
     calories_burned = float(request.data.get("calories_burned", 0))
     intensity = float(request.data.get("calculated_intensity", 0))
     strain_score = float(request.data.get("strain_score", 0))
-    fatigue_level = int(request.data.get("fatigue_level", 0))
 
-    # ---- 1) TensorFlow model probability ---- #
-    model_prob = predict_injury(
-        heart_rate,
-        sleep_hours,
-        steps,
-        calories_burned,
-        intensity,
-        strain_score,
-    )  # returns 0.0–1.0
-
-    # ---- 2) Workload & sleep context (ACWR + sleep debt) ---- #
-    workload = compute_workload_features(athlete)
-    acwr = workload["acwr"]
-    sleep_debt = workload["sleep_debt"]
-
-    acwr_risk = acwr_risk_component(acwr)
-    sleep_risk = sleep_risk_component(sleep_debt)
-    strain_risk = strain_risk_component(strain_score)
-
-    # Context risk mixes ACWR + strain + sleep debt
-    context_risk = (
-        0.5 * acwr_risk +
-        0.3 * strain_risk +
-        0.2 * sleep_risk
+    # -------- 3) BASE ML PREDICTION --------
+    ml_probability = float(
+        predict_injury(
+            heart_rate,
+            sleep_hours,
+            steps,
+            calories_burned,
+            intensity,
+            strain_score,
+        )
     )
 
-    # ---- 3) Final hybrid risk ---- #
-    # 60% ML model + 40% context (ACWR + sleep + strain)
-    hybrid_risk = 0.6 * float(model_prob) + 0.4 * float(context_risk)
-    hybrid_risk = max(0.0, min(hybrid_risk, 1.0))
+    # -------- 4) WORKLOAD RISK LAYER (ACWR) --------
+    # ACWR already computed & stored on athlete model
+    try:
+        acwr = float(athlete.acwr) if athlete.acwr is not None else None
+    except:
+        acwr = None  # NaN-safe
 
-    # Convert to risk category
-    if hybrid_risk > 0.7:
+    if acwr is None:
+        acwr_component = None
+    elif acwr <= 0.8:
+        acwr_component = 0.2  # under-prepared
+    elif acwr <= 1.3:
+        acwr_component = 0.4  # sweet spot
+    elif acwr <= 1.6:
+        acwr_component = 0.7  # elevated strain
+    else:
+        acwr_component = 0.9  # overload spike
+
+    # -------- 5) FUSE ML + ACWR --------
+    if acwr_component is None:
+        final_probability = ml_probability
+    else:
+        # Weighted hybrid model
+        final_probability = (0.6 * ml_probability) + (0.4 * acwr_component)
+
+    final_probability = max(0.0, min(1.0, final_probability))  # clamp 0–1
+
+    # -------- 6) RISK CLASSIFICATION --------
+    if final_probability > 0.7:
         risk_level = "high"
-    elif hybrid_risk > 0.4:
+    elif final_probability > 0.4:
         risk_level = "medium"
     else:
         risk_level = "low"
 
-    # ---- 4) Save prediction record (used by /predictions/latest/) ---- #
+    # -------- 7) PRESCRIPTIVE RECOMMENDATION ENGINE --------
+    def build_recommendation(prob, acwr_val):
+        if acwr_val and acwr_val > 1.5:
+            return (
+                "🚨 Load spike detected — VERY HIGH injury risk. "
+                "Rest today. Reduce next week's workload by 40–60%. "
+                "Avoid explosive sprinting and heavy lifting. "
+                "Hydrate well and increase sleep duration."
+            )
+        if prob > 0.7:
+            return (
+                "❌ High injury risk. Avoid intense training today. "
+                "Replace with mobility work, light stretching, and recovery runs."
+            )
+        elif prob > 0.4:
+            return (
+                "⚠️ Moderate risk. Reduce today's intensity by ~30%. "
+                "Avoid max-effort jumps, sprints, and heavy squats."
+            )
+        else:
+            return (
+                "🟢 Low risk — safe to train. Maintain current progressions. "
+                "Monitor soreness and keep sleep above 7.5 hours."
+            )
+
+    recommendation = build_recommendation(final_probability, acwr)
+
+    # -------- 8) SAVE FINAL PREDICTION --------
     InjuryPrediction.objects.create(
         athlete=athlete,
         risk_level=risk_level,
-        predicted_probability=hybrid_risk,
+        predicted_probability=final_probability,
         strain_score=strain_score,
+        recommendation=recommendation,
+        # ⬅️ NEW FIELD
     )
 
-    # ---- 5) Return detailed response to frontend ---- #
-    return Response({
-        "status": "success",
-        "athlete": athlete.name,
-        # main value the frontend uses:
-        "probability": hybrid_risk,
-        "risk_level": risk_level,
-        # extra transparency for your explanation/demo:
-        "details": {
-            "model_probability": model_prob,
-            "context_risk": round(context_risk, 3),
+    # -------- 9) SEND RESPONSE TO FRONTEND --------
+    return Response(
+        {
+            "status": "success",
+            "athlete": athlete.name,
+            "risk_level": risk_level,
+            "probability": final_probability,
+            "ml_probability": ml_probability,
             "acwr": acwr,
-            "acute_load": workload["acute_load"],
-            "chronic_load": workload["chronic_load"],
-            "sleep_debt": sleep_debt,
-            "sleep_target": SLEEP_TARGET_HOURS,
+
             "strain_score": strain_score,
-            "fatigue_level": fatigue_level,
-        },
-    })
+            "recommendation": recommendation,  # ⬅️ NEW
+        }
+    )
 
 
 @api_view(["GET"])
@@ -247,51 +284,62 @@ def athlete_sessions(request, athlete_id: int):
 def latest_session(request, athlete_id):
     try:
         athlete = AthleteData.objects.get(id=athlete_id)
-
-        latest = athlete.sessions.order_by("-session_date").first()
-
-        if not latest:
-            return Response({"error": "No session data found"}, status=404)
-
-        return Response({
-            "id": athlete.id,
-            "name": athlete.name,
-            "age": athlete.age,
-            "sport": athlete.sport,
-            "team": athlete.team,
-            "experience_years": athlete.experience_years,
-
-            # RETURN LATEST SESSION METRICS
-            "heart_rate": latest.heart_rate,
-            "sleep_hours": latest.sleep_hours,
-            "steps": latest.steps,
-            "calories_burned": latest.calories_burned,
-            "strain_score": latest.strain_score,
-            "intensity": latest.calculated_intensity,
-            "fatigue_level": latest.fatigue_level,
-
-            # PROFILE AVERAGES
-            "avg_heart_rate": athlete.avg_heart_rate,
-            "avg_sleep_hours": athlete.avg_sleep_hours,
-            "avg_steps": athlete.avg_steps,
-            "avg_calories_burned": athlete.avg_calories_burned,
-            "avg_intensity": athlete.avg_intensity,
-            "avg_strain": athlete.avg_strain,
-        }, status=200)
-
     except AthleteData.DoesNotExist:
         return Response({"error": "Athlete not found"}, status=404)
 
+    # Get most recent session
+    session = (
+        AthleteSession.objects.filter(athlete_id=athlete_id)
+        .order_by("-session_date")
+        .first()
+    )
+    if not session:
+        return Response({"error": "No sessions found"}, status=404)
+
+    # Compute ACWR safely
+    try:
+        acwr_val = float(athlete.acwr) if athlete.acwr is not None else None
+    except:
+        acwr_val = None
+
+    payload = {
+        "id": athlete.id,
+        "name": athlete.name,
+        "age": athlete.age,
+        "sport": athlete.sport,
+        "team": athlete.team,
+        "experience_years": athlete.experience_years,
+
+        # latest session metrics
+        "heart_rate": session.heart_rate,
+        "sleep_hours": session.sleep_hours,
+        "steps": session.steps,
+        "calories_burned": session.calories_burned,
+        "intensity": session.calculated_intensity,
+        "strain_score": session.strain_score,
+        "fatigue_level": session.fatigue_level,
+
+        # NEW — RETURN THESE SAFELY
+        "acute_load": getattr(athlete, "acute_load", None),
+        "chronic_load": getattr(athlete, "chronic_load", None),
+        "acwr": acwr_val,
+    }
+
+    # Add averages (you already had this)
+    payload.update(athlete.last_five_averages)
+
+    return Response(payload, status=200)
+
 
 @api_view(["GET"])
-def athlete_history(request, pk):
+def athlete_history(request, athlete_id):
     try:
-        athlete = AthleteData.objects.get(id=pk)
+        athlete = AthleteData.objects.get(id=athlete_id)
         sessions = athlete.sessions.order_by("session_date")
 
         return Response([
             {
-                "date": s.session_date.date(),
+                "date": s.session_date.date().isoformat(),
                 "heart_rate": s.heart_rate,
                 "sleep_hours": s.sleep_hours,
                 "steps": s.steps,

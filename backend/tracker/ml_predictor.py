@@ -6,7 +6,7 @@ import numpy as np
 # BASE_DIR = backend/
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ml_models is directly inside backend/
+
 ML_DIR = os.path.join(os.path.dirname(BASE_DIR), "ml_models")
 
 SCALER_PATH = os.path.join(ML_DIR, "scaler.pkl")

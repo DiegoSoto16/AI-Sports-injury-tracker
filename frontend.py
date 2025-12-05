@@ -7,7 +7,7 @@ import plotly.express as px
 # CONFIG
 # ------------------------------------------------------------
 BASE_URL = "http://127.0.0.1:8000/api"
-SELECTED_ATHLETE_ID = 1
+SELECTED_ATHLETE_ID = 9
 
 
 # ------------------------------------------------------------
@@ -49,6 +49,46 @@ page = st.sidebar.radio(
 )
 
 
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.athlete_id = None
+    st.session_state.athlete_name = None
+# ---------------login----
+
+
+def login_user(username: str):
+    """Validate username using backend athlete list."""
+    try:
+        r = requests.get(f"{BASE_URL}/athletes/")
+        if r.status_code == 200:
+            athletes = r.json()
+            for a in athletes:
+                if a["name"].lower() == username.lower():
+                    st.session_state.logged_in = True
+                    st.session_state.athlete_id = a["id"]
+                    st.session_state.athlete_name = a["name"]
+                    return True
+    except Exception as e:
+        st.error(f"Backend error: {e}")
+    return False
+
+
+def show_login_page():
+    st.title("🔐 Athlete Login")
+    username = st.text_input("Enter your athlete name:")
+    if st.button("Login"):
+        if login_user(username):
+            st.rerun()
+        else:
+            st.error("Invalid athlete name or not found.")
+
+
+if not st.session_state.logged_in:
+    show_login_page()
+    st.stop()
+
+ATHLETE_ID = st.session_state.athlete_id
+# -------------
 # ------------------------------------------------------------
 # PAGE: DASHBOARD
 # ------------------------------------------------------------
@@ -131,6 +171,9 @@ if page == "🏠 Dashboard":
 # ------------------------------------------------------------
 # PAGE: AI PREVENTION
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# PAGE: AI PREVENTION
+# ------------------------------------------------------------
 elif page == "🧠 AI Prevention":
     st.title("🧠 AI Injury Prevention Advisor")
 
@@ -140,46 +183,139 @@ elif page == "🧠 AI Prevention":
         st.stop()
 
     st.markdown(
-        f"Analyzing **{latest['name']}**'s current workload using real ML predictions."
+        f"Using **{latest['name']}**'s most recent sessions "
+        "to generate an AI-enhanced injury prediction."
     )
 
+    # --------------------------------------------------
+    # 1) LOAD TRAINING HISTORY FROM BACKEND
+    #    -> /athletes/<id>/history/
+    # --------------------------------------------------
+    history = []
+    try:
+        hist_resp = requests.get(
+            f"{BASE_URL}/athletes/{SELECTED_ATHLETE_ID}/history/",
+            timeout=10,
+        )
+        if hist_resp.status_code == 200:
+            history = hist_resp.json()
+        else:
+            st.warning("Could not load training history.")
+    except Exception as e:
+        st.error(f"Could not load training history: {e}")
+
+    # --------------------------------------------------
+    # 2) COMPUTE ACWR ON STRAIN SCORE
+    # --------------------------------------------------
+    def compute_acwr(sessions):
+        """
+        Acute: last 3 sessions (most recent)
+        Chronic: last 7 sessions (training base)
+        sessions is ordered oldest -> newest by the backend,
+        so we take the last ones here.
+        """
+        if len(sessions) < 4:
+            return None
+
+        # Take up to last 7, reversed so newest first
+        recent = list(sessions)[-7:]
+        recent = list(reversed(recent))
+
+        acute_sessions = recent[:3]
+        chronic_sessions = recent[:7]
+
+        acute = sum(s["strain_score"]
+                    for s in acute_sessions) / len(acute_sessions)
+        chronic = sum(s["strain_score"]
+                      for s in chronic_sessions) / len(chronic_sessions)
+
+        if chronic <= 0:
+            return None
+
+        return round(acute / chronic, 2)
+
+    acwr = compute_acwr(history) if history else None
+
+    # --------------------------------------------------
+    # 3) SHOW ACWR + SIMPLE RECOMMENDATION
+    # --------------------------------------------------
+    st.subheader("Training Load Ratio (ACWR)")
+    if acwr is None:
+        st.info("Not enough load history to compute ACWR yet.")
+    else:
+        st.metric("ACWR", acwr)
+        if acwr < 0.8:
+            st.warning(
+                "⚠️ Undertraining — consider gradually increasing volume.")
+            acwr_note = (
+                "Load is lower than your chronic baseline. "
+                "You may be underprepared for sudden spikes."
+            )
+        elif acwr <= 1.3:
+            st.success("💪 Optimal Load Zone — safe progression.")
+            acwr_note = "Training load is in the sweet spot relative to recent history."
+        elif acwr <= 1.6:
+            st.warning("⚠️ High Load — increased injury risk.")
+            acwr_note = (
+                "Recent load is noticeably higher than your base. "
+                "Reduce volume or intensity over the next few sessions."
+            )
+        else:
+            st.error("🚨 Load Spike — VERY HIGH injury risk.")
+            acwr_note = (
+                "Large spike above your chronic load. Rest or low-intensity work is recommended."
+            )
+
+        st.markdown(
+            f"**Recommendation:** {acwr_note}"
+        )
+
+    # --------------------------------------------------
+    # 4) BUILD PAYLOAD FOR ML PREDICTION (SAME AS BEFORE)
+    # --------------------------------------------------
     payload = {
         "athlete": SELECTED_ATHLETE_ID,
-        "heart_rate": latest["heart_rate"],
-        "duration_minutes": latest.get("duration_minutes", 60.0),
-        "calories_burned": latest["calories_burned"],
-        "calculated_intensity": latest["intensity"],
-        "strain_score": latest["strain_score"],
-        "sleep_hours": latest["sleep_hours"],
-        "steps": latest["steps"],
-        "fatigue_level": latest.get("fatigue_level", 0),
+        "heart_rate": float(latest["heart_rate"]),
+        "calories_burned": float(latest["calories_burned"]),
+        "calculated_intensity": float(latest["intensity"]),
+        "strain_score": float(latest["strain_score"]),
+        "sleep_hours": float(latest["sleep_hours"]),
+        "steps": int(latest["steps"]),
     }
 
+    # --------------------------------------------------
+    # 5) CALL BACKEND /predict/  (CREATE_PREDICTION)
+    # --------------------------------------------------
     try:
-        resp = requests.post(f"{BASE_URL}/predict/", json=payload, timeout=15)
-        if resp.status_code in (200, 201):
+        resp = requests.post(
+            f"{BASE_URL}/predict/",
+            json=payload,
+            timeout=15,
+        )
+        if resp.status_code == 200:
             result = resp.json()
-            risk_score = float(result.get("probability", 0.0))
+            prob = float(result.get("probability", 0.0))
             risk_level = result.get("risk_level", "low")
+            backend_acwr = result.get("acwr", None)
 
-            st.metric("Injury Risk Score (ML)", f"{risk_score * 100:.1f}%")
+            st.subheader("AI Injury Risk (ML + workload)")
+            st.metric("Risk", f"{prob * 100:.1f}%")
 
-            if risk_level == "high" or risk_score > 0.7:
-                st.error("🚨 High Risk — rest and recovery recommended.")
-                st.write(
-                    "• Reduce workload immediately.\n• Increase sleep.\n• Consult athletic trainer.")
-            elif risk_level == "medium" or risk_score > 0.4:
-                st.warning("⚠️ Moderate Risk — monitor and adjust intensity.")
-                st.write(
-                    "• Hydrate well.\n• Avoid sudden workload spikes.\n• Prioritize recovery.")
+            # Combine ML risk + ACWR    for a short message
+            if risk_level == "high" or prob > 0.7:
+                st.error("❌ High AI risk — avoid intense training today.")
+            elif risk_level == "medium":
+                st.warning(
+                    "⚠️ Moderate AI risk — train with caution and monitor fatigue.")
             else:
-                st.success("✅ Low Risk — Good to Train")
-                st.write(
-                    "• Maintain balanced intensity.\n• Warm-up properly.\n• Monitor biomechanics.")
+                st.success(" Low AI risk — safe to train.")
+
+            with st.expander("Show full prediction details"):
+                st.json(result)
         else:
             st.error(f"Backend error: {resp.status_code}")
     except Exception as e:
-        st.error(f"Could not contact backend: {e}")
+        st.error(f"Prediction failed: {e}")
 
 
 # ------------------------------------------------------------

@@ -1,5 +1,7 @@
 from django.db import models
 import datetime
+from datetime import timedelta
+from django.utils.timezone import now
 
 
 class AthleteData(models.Model):
@@ -67,6 +69,60 @@ class AthleteData(models.Model):
             return 0
         return round(sum(s.strain_score for s in sessions) / len(sessions), 2)
 
+    @property
+    def last_five_averages(self):
+        """
+        Returns a dict of rolling averages from last five sessions.
+        Used by latest_session endpoint to attach summary metrics.
+        """
+        return {
+            "avg_heart_rate": self.avg_heart_rate,
+            "avg_sleep_hours": self.avg_sleep_hours,
+            "avg_steps": self.avg_steps,
+            "avg_calories_burned": self.avg_calories_burned,
+            "avg_intensity": self.avg_intensity,
+            "avg_strain": self.avg_strain,
+        }
+
+    @property
+    def acute_load(self):
+        """
+        Sum of strain scores for the last 7 days (short-term load).
+        """
+        last_week = now() - timedelta(days=7)
+        sessions = self.sessions.filter(session_date__gte=last_week)
+        if not sessions:
+            return 0
+        return round(sum(s.strain_score for s in sessions), 2)
+
+
+@property
+def chronic_load(self):
+    """
+    Average weekly load for the past 28 days (long-term load).
+    """
+    last_month = now() - timedelta(days=28)
+    sessions = self.sessions.filter(session_date__gte=last_month)
+    if not sessions:
+        return 1  # avoid division by zero
+
+    weekly_avg = sum(s.strain_score for s in sessions) / 4
+    return round(weekly_avg, 2)
+
+
+@property
+def acwr(self):
+    """
+    Acute:Chronic Workload Ratio
+    ACWR = acute_load / chronic_load
+    Safe Zone: 0.8 - 1.3
+    Danger Zone: >1.5
+    Underloaded: <0.8
+    """
+    if self.chronic_load == 0:
+        return 1.0
+    return round(self.acute_load / self.chronic_load, 2)
+
 
 class AthleteSession(models.Model):
     athlete = models.ForeignKey(
@@ -96,6 +152,7 @@ class InjuryPrediction(models.Model):
     predicted_probability = models.FloatField(default=0.0)
     strain_score = models.FloatField(default=0.0)
     created_at = models.DateTimeField(auto_now_add=True)
+    recommendation = models.TextField(default="", blank=True)
 
     def __str__(self):
         return f"{self.athlete.name} - {self.risk_level}"
