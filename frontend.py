@@ -271,7 +271,7 @@ elif page == "🧠 AI Prevention":
         )
 
     # --------------------------------------------------
-    # 4) BUILD PAYLOAD FOR ML PREDICTION (SAME AS BEFORE)
+    # 4) BUILD PAYLOAD FOR ML PREDICTION
     # --------------------------------------------------
     payload = {
         "athlete": SELECTED_ATHLETE_ID,

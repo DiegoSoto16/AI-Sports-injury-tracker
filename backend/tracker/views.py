@@ -66,7 +66,6 @@ def compute_workload_features(athlete) -> Dict[str, float]:
             "sleep_debt": 0.0,
         }
 
-    # For this prototype, treat strain_score as "session load"
     acute_load = 0.0
     if last_7.exists():
         acute_load = sum(s.strain_score for s in last_7) / last_7.count()
@@ -123,21 +122,14 @@ def sleep_risk_component(sleep_debt: float) -> float:
 
 
 def strain_risk_component(strain_score: float) -> float:
-    """
-    Strain is roughly 0–10 in your data. Normalize to 0–1.
-    """
+
     return max(0.0, min(strain_score / 10.0, 1.0))
 # -----------
 
 
 @api_view(["POST"])
 def create_prediction(request):
-    """
-    Creates an AI injury prediction that fuses:
-    - ML probability from TensorFlow model
-    - Workload safety layer using ACWR
-    - Prescriptive recommendations to prevent injury
-    """
+
     from .ml_predictor import predict_injury
 
     # -------- 1) GET ATHLETE --------
